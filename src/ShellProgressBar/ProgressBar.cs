@@ -18,16 +18,18 @@ namespace ShellProgressBar
 		private readonly int _originalWindowTop;
 		private readonly int _originalWindowHeight;
 		private readonly bool _startedRedirected;
-		private int _originalCursorTop;
+		private int _originalCursorTop = 0;
 		private int _isDisposed;
 
 		private Timer _timer;
 		private int _visibleDescendants = 0;
-		private readonly AutoResetEvent _displayProgressEvent;
+		public readonly AutoResetEvent _displayProgressEvent;
 		private readonly Task _displayProgress;
+		public int totalHeight = 0;
+		public int maxMessageLine = 5;
 
 		public ProgressBar(int maxTicks, string message, ConsoleColor color)
-			: this(maxTicks, message, new ProgressBarOptions {ForegroundColor = color})
+			: this(maxTicks, message, new ProgressBarOptions { ForegroundColor = color })
 		{
 		}
 
@@ -40,7 +42,7 @@ namespace ShellProgressBar
 
 			try
 			{
-				_originalCursorTop = Console.CursorTop;
+				//_originalCursorTop = Console.CursorTop;
 				_originalWindowTop = Console.WindowTop;
 				_originalWindowHeight = Console.WindowHeight + _originalWindowTop;
 				_originalColor = Console.ForegroundColor;
@@ -103,6 +105,7 @@ namespace ShellProgressBar
 		private void EnsureMainProgressBarVisible(int extraBars = 0)
 		{
 			var pbarHeight = this.Options.DenseProgressBar ? 1 : 2;
+			totalHeight = (1 + extraBars) * pbarHeight;
 			var neededPadding = Math.Min(_originalWindowHeight - pbarHeight, (1 + extraBars) * pbarHeight);
 			var difference = _originalWindowHeight - _originalCursorTop;
 			var write = difference <= neededPadding ? Math.Max(0, Math.Max(neededPadding, difference)) : 0;
@@ -144,7 +147,7 @@ namespace ShellProgressBar
 			var depth = indentation.Length;
 			var messageWidth = 30;
 			var maxCharacterWidth = Console.WindowWidth - (depth * 2) + 2;
-			var truncatedMessage = StringExtensions.Excerpt(message, messageWidth - 2) + " ";
+			var truncatedMessage = message.Excerpt(messageWidth - 2) + " ";
 			var width = (Console.WindowWidth - (depth * 2) + 2) - truncatedMessage.Length;
 
 			if (!string.IsNullOrWhiteSpace(ProgressBarOptions.ProgressMessageEncodingName))
@@ -152,7 +155,7 @@ namespace ShellProgressBar
 				width = width + message.Length - System.Text.Encoding.GetEncoding(ProgressBarOptions.ProgressMessageEncodingName).GetBytes(message).Length;
 			}
 
-			var newWidth = (int) ((width * percentage) / 100d);
+			var newWidth = (int)((width * percentage) / 100d);
 			var progBar = new string(progressCharacter, newWidth);
 			DrawBottomHalfPrefix(indentation, depth);
 			Console.Write(truncatedMessage);
@@ -196,11 +199,11 @@ namespace ShellProgressBar
 
 			var format = $"{{0, -{column1Width}}}{{1,{column2Width}}}";
 			var percentageFormatedString = string.Format(percentageFormat, percentage);
-			var truncatedMessage = StringExtensions.Excerpt(percentageFormatedString + message, column1Width);
+			var truncatedMessage = (percentageFormatedString + message).Excerpt(column1Width);
 
 			if (disableBottomPercentage)
 			{
-				truncatedMessage = StringExtensions.Excerpt(message, column1Width);
+				truncatedMessage = message.Excerpt(column1Width);
 			}
 
 			var formatted = string.Format(format, truncatedMessage, durationString);
@@ -238,7 +241,7 @@ namespace ShellProgressBar
 			else
 				DrawTopHalfPrefix(indentation, depth);
 
-			var newWidth = (int) ((width * percentage) / 100d);
+			var newWidth = (int)((width * percentage) / 100d);
 			var progBar = new string(progressCharacter, newWidth);
 			Console.Write(progBar);
 			if (backgroundColor.HasValue)
@@ -289,19 +292,21 @@ namespace ShellProgressBar
 			if (this.Options.EnableTaskBarProgress)
 				TaskbarProgress.SetValue(mainPercentage, 100);
 
-			// write queued console messages, displayprogress is signaled straight after but
-			// just in case make sure we never write more then 5 in a display progress tick
-			for (var i = 0; i < 5 && _stickyMessages.TryDequeue(out var m); i++)
-				WriteConsoleLine(m);
-
-			if (_startedRedirected) return;
-
+			if (_startedRedirected)
+			{
+				// write queued console messages, displayprogress is signaled straight after but
+				// just in case make sure we never write more than 50 in a display progress tick
+				while (_stickyMessages.TryDequeue(out var m))
+					WriteConsoleLine(m);
+				return;
+			}
 			Console.CursorVisible = false;
 			Console.ForegroundColor = this.ForegroundColor;
+			Console.SetCursorPosition(0, 0);
 
 			GrowDrawingAreaBasedOnChildren();
-			var cursorTop = _originalCursorTop;
-			var indentation = new[] {new Indentation(this.ForegroundColor, true)};
+			var cursorTop = 0;
+			var indentation = new[] { new Indentation(this.ForegroundColor, true) };
 
 			void TopHalf()
 			{
@@ -345,10 +350,15 @@ namespace ShellProgressBar
 
 			DrawChildren(this.Children, indentation, ref cursorTop, Options.PercentageFormat);
 
-			ResetToBottom(ref cursorTop);
+			//ResetToBottom(ref cursorTop);
 
-			Console.SetCursorPosition(0, _originalCursorTop);
+			Console.SetCursorPosition(0, 0);
 			Console.ForegroundColor = _originalColor;
+
+			// write queued console messages, displayprogress is signaled straight after but
+			// just in case make sure we never write more than 50 in a display progress tick
+			while (_stickyMessages.TryDequeue(out var m))
+				WriteConsoleLine(m);
 
 			if (!(mainPercentage >= 100)) return;
 			_timer?.Dispose();
@@ -357,39 +367,56 @@ namespace ShellProgressBar
 
 		private void WriteConsoleLine(ConsoleOutLine m)
 		{
-			var resetString = new string(' ', Console.WindowWidth);
-			Console.Write(resetString);
-			Console.Write("\r");
-			var foreground = Console.ForegroundColor;
-			var background = Console.BackgroundColor;
-			var written = _writeMessageToConsole(m);
-			Console.ForegroundColor = foreground;
-			Console.BackgroundColor = background;
-			_originalCursorTop += written;
+			var splittedMessageLines = m.Line.Split(new Char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+			if (splittedMessageLines.Length > 0)
+			{
+				var resetString = new string(' ', Math.Min(Console.BufferWidth, Console.WindowWidth));
+				
+				for (int i = 0; i < maxMessageLine + 2 ; i++)
+				{
+					Console.SetCursorPosition(0, totalHeight + i);
+					Console.Write(resetString);
+				}
+
+				// truncating the message based on allowed lines
+				var truncatedHeightMessage = splittedMessageLines.SubArray(0, maxMessageLine);
+
+				var truncatedWidthMessage = truncatedHeightMessage.Select(x => x.Excerpt(Math.Min(Console.BufferWidth, Console.WindowWidth) - 3));
+
+				var newM = new ConsoleOutLine(string.Join(Environment.NewLine, truncatedWidthMessage), m.Error);
+				var foreground = Console.ForegroundColor;
+				var background = Console.BackgroundColor;
+				Console.SetCursorPosition(0, totalHeight + 1);
+				var written = _writeMessageToConsole(newM);
+				Console.ForegroundColor = foreground;
+				Console.BackgroundColor = background;
+				//_originalCursorTop += written;
+			}
 		}
 
 		private static int DefaultConsoleWrite(ConsoleOutLine line)
 		{
 			if (line.Error) Console.Error.WriteLine(line.Line);
 			else Console.WriteLine(line.Line);
-			return 1;
+
+			return line.Line.Split(new String[] { Environment.NewLine }, StringSplitOptions.None).Count(); ;
 		}
 
 		private void ResetToBottom(ref int cursorTop)
 		{
-			var resetString = new string(' ', Console.WindowWidth);
+			var resetString = new string(' ', Math.Min(Console.BufferWidth, Console.WindowWidth));
 			var windowHeight = _originalWindowHeight;
-			if (cursorTop >= (windowHeight - 1)) return;
+			if (cursorTop >= (windowHeight - 2)) return;
 			do
 			{
 				Console.Write(resetString);
-			} while (++cursorTop < (windowHeight - 1));
+			} while (++cursorTop < (windowHeight - 2));
 		}
 
 		private static void DrawChildren(IEnumerable<ChildProgressBar> children, Indentation[] indentation,
 			ref int cursorTop, string percentageFormat)
 		{
-			var view = children.Where(c => !c.Collapse).Select((c, i) => new {c, i}).ToList();
+			var view = children.Where(c => !c.Collapse).Select((c, i) => new { c, i }).ToList();
 			if (!view.Any()) return;
 
 			var windowHeight = Console.WindowHeight;
