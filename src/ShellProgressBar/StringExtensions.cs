@@ -6,11 +6,11 @@ namespace ShellProgressBar
 {
     internal static class StringExtensions
     {
-        public static string Excerpt(this string phrase, int length = 60)
+        public static string Excerpt(this string phrase, int length = 60, string truncationSuffix = "...")
         {
-            if (string.IsNullOrEmpty(phrase) || phrase.Length <= length -3)
+            if (string.IsNullOrEmpty(phrase) || phrase.Length <= length - truncationSuffix.Length)
                 return phrase;
-            return phrase.Substring(0, length - 3) + "...";
+            return phrase.Substring(0, length - truncationSuffix.Length) + truncationSuffix;
         }
 
 		public static T[] SubArray<T>(this T[] array, int offset, int length)

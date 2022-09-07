@@ -2,8 +2,8 @@ namespace ShellProgressBar
 {
 	public struct ConsoleOutLine
 	{
-		public bool Error { get; }
-		public string Line { get; }
+		public bool Error { get; set; }
+		public string Line { get; set; }
 
 		public ConsoleOutLine(string line, bool error = false)
 		{

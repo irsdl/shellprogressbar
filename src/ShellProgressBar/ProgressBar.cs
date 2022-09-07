@@ -26,7 +26,7 @@ namespace ShellProgressBar
 		public readonly AutoResetEvent _displayProgressEvent;
 		private readonly Task _displayProgress;
 		public int totalHeight = 0;
-		public int maxMessageLine = 5;
+		private int _maxMessageLine = -1;
 
 		public ProgressBar(int maxTicks, string message, ConsoleColor color)
 			: this(maxTicks, message, new ProgressBarOptions { ForegroundColor = color })
@@ -273,6 +273,18 @@ namespace ShellProgressBar
 
 		private readonly ConcurrentQueue<ConsoleOutLine> _stickyMessages = new ConcurrentQueue<ConsoleOutLine>();
 
+		public int MaxMessageLine
+		{
+			get
+			{
+				if (_maxMessageLine >= 5)
+					return _maxMessageLine;
+				else
+					return 5;
+			}
+			set => _maxMessageLine = value;
+		}
+
 		public override void WriteLine(string message)
 		{
 			_stickyMessages.Enqueue(new ConsoleOutLine(message));
@@ -371,19 +383,30 @@ namespace ShellProgressBar
 			if (splittedMessageLines.Length > 0)
 			{
 				var resetString = new string(' ', Math.Min(Console.BufferWidth, Console.WindowWidth));
-				
-				for (int i = 0; i < maxMessageLine + 2 ; i++)
+
+				for (int i = 0; i < MaxMessageLine + 3; i++)
 				{
 					Console.SetCursorPosition(0, totalHeight + i);
 					Console.Write(resetString);
 				}
 
-				// truncating the message based on allowed lines
-				var truncatedHeightMessage = splittedMessageLines.SubArray(0, maxMessageLine);
+				string truncationSuffix = "...";
+				bool needsLastLineSuffix = false;
+				if (splittedMessageLines.Length > MaxMessageLine)
+				{
+					needsLastLineSuffix = true;
+				}
 
-				var truncatedWidthMessage = truncatedHeightMessage.Select(x => x.Excerpt(Math.Min(Console.BufferWidth, Console.WindowWidth) - 3));
+				// truncating the message based on allowed lines
+				var truncatedHeightMessage = splittedMessageLines.SubArray(0, MaxMessageLine);
+
+				var truncatedWidthMessage = truncatedHeightMessage.Select(x => x.Excerpt(Math.Min(Console.BufferWidth, Console.WindowWidth) - truncationSuffix.Length, truncationSuffix));
 
 				var newM = new ConsoleOutLine(string.Join(Environment.NewLine, truncatedWidthMessage), m.Error);
+				if (needsLastLineSuffix)
+				{
+					newM.Line = newM.Line + Environment.NewLine + truncationSuffix;
+				}
 				var foreground = Console.ForegroundColor;
 				var background = Console.BackgroundColor;
 				Console.SetCursorPosition(0, totalHeight + 1);
