@@ -26,6 +26,7 @@ namespace ShellProgressBar
 		public readonly AutoResetEvent _displayProgressEvent;
 		private readonly Task _displayProgress;
 		public int totalHeight = 0;
+		public int fixedTotalHeight = -1; // to overwrite the totalHeight parameter if it's been set - useful when displaying messages with dynamic collapsable progress bars
 		private int _maxMessageLine = -1;
 
 		public ProgressBar(int maxTicks, string message, ConsoleColor color)
@@ -105,7 +106,10 @@ namespace ShellProgressBar
 		private void EnsureMainProgressBarVisible(int extraBars = 0)
 		{
 			var pbarHeight = this.Options.DenseProgressBar ? 1 : 2;
-			totalHeight = (1 + extraBars) * pbarHeight;
+			if (fixedTotalHeight <= 0)
+				totalHeight = (1 + extraBars) * pbarHeight;
+			else
+				totalHeight = fixedTotalHeight;
 			var neededPadding = Math.Min(_originalWindowHeight - pbarHeight, (1 + extraBars) * pbarHeight);
 			var difference = _originalWindowHeight - _originalCursorTop;
 			var write = difference <= neededPadding ? Math.Max(0, Math.Max(neededPadding, difference)) : 0;
